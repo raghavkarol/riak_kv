@@ -553,18 +553,6 @@ handle_overload_info({raw_forward_get, _, From}, _Idx) ->
 handle_overload_info(_, _) ->
     ok.
 
-handle_command(?KV_PUT_REQ{bkey=BKey,
-                           object=Object,
-                           req_id=ReqId,
-                           start_time=StartTime,
-                           options=Options},
-               Sender, State=#state{idx=Idx}) ->
-    StartTS = os:timestamp(),
-    riak_core_vnode:reply(Sender, {w, Idx, ReqId}),
-    {_Reply, UpdState} = do_put(Sender, BKey,  Object, ReqId, StartTime, Options, State),
-    update_vnode_stats(vnode_put, Idx, StartTS),
-    {noreply, UpdState};
-
 handle_command(?KV_GET_REQ{bkey=BKey,req_id=ReqId},Sender,State) ->
     do_get(Sender, BKey, ReqId, State);
 handle_command(#riak_kv_listkeys_req_v2{bucket=Input, req_id=ReqId, caller=Caller}, _Sender,
@@ -893,7 +881,22 @@ handle_command(?KV_W1C_PUT_REQ{bkey={Bucket, Key}, encoded_obj=EncodedVal, type=
             {reply, ?KV_W1C_PUT_REPLY{reply=ok, type=Type}, State#state{modstate=UpModState}};
         {error, Reason, UpModState} ->
             {reply, ?KV_W1C_PUT_REPLY{reply={error, Reason}, type=Type}, State#state{modstate=UpModState}}
-    end.
+    end;
+handle_command(Req, Sender, State) ->
+    handle_request(riak_kv_requests:request_type(Req), Req, Sender, State).
+
+
+%% @todo: pre record encapsulation there was no catch all clause in handle_command,
+%%        so crashing on unknown should work.
+handle_request(kv_put_request, Req, Sender, #state{idx = Idx} = State) ->
+    StartTS = os:timestamp(),
+    ReqId = riak_kv_requests:get_request_id(Req),
+    riak_core_vnode:reply(Sender, {w, Idx, ReqId}),
+    {_Reply, UpdState} = do_put(Sender, Req, State),
+    update_vnode_stats(vnode_put, Idx, StartTS),
+    {noreply, UpdState}.
+
+
 
 %% @doc Handle a coverage request.
 %% More information about the specification for the ItemFilter
@@ -1114,12 +1117,10 @@ handle_handoff_request(_Other, Req, Sender, State) ->
 %% callback used by dynamic ring sizing to determine where
 %% requests should be forwarded. Puts/deletes are forwarded
 %% during the operation, all other requests are not
-request_hash(?KV_PUT_REQ{bkey=BKey}) ->
-    riak_core_util:chash_key(BKey);
 request_hash(?KV_DELETE_REQ{bkey=BKey}) ->
     riak_core_util:chash_key(BKey);
-request_hash(_Req) ->
-    undefined.
+request_hash(Req) ->
+    riak_kv_requests:request_hash(Req).
 
 handoff_starting({_HOType, TargetNode}=_X, State=#state{handoffs_rejected=RejectCount}) ->
     MaxRejects = app_helper:get_env(riak_kv, handoff_rejected_max, 6),
