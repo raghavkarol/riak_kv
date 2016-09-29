@@ -523,16 +523,20 @@ init([Index]) ->
     end.
 
 
-handle_overload_command(?KV_PUT_REQ{}, Sender, Idx) ->
-    riak_core_vnode:reply(Sender, {fail, Idx, overload});
 handle_overload_command(?KV_GET_REQ{req_id=ReqID}, Sender, Idx) ->
     riak_core_vnode:reply(Sender, {r, {error, overload}, Idx, ReqID});
 handle_overload_command(?KV_VNODE_STATUS_REQ{}, Sender, Idx) ->
     riak_core_vnode:reply(Sender, {vnode_status, Idx, [{error, overload}]});
 handle_overload_command(?KV_W1C_PUT_REQ{type=Type}, Sender, _Idx) ->
     riak_core_vnode:reply(Sender, ?KV_W1C_PUT_REPLY{reply={error, overload}, type=Type});
-handle_overload_command(_, Sender, _) ->
+handle_overload_command(Req, Sender, Idx) ->
+    handle_overload_request(riak_kv_requests:request_type(Req), Req, Sender, Idx).
+
+handle_overload_request(kv_put_request, _Req, Sender, Idx) ->
+    riak_core_vnode:reply(Sender, {fail, Idx, overload});
+handle_overload_request(_, _Req, Sender, _Idx) ->
     riak_core_vnode:reply(Sender, {error, mailbox_overload}).
+
 
 %% Handle all SC overload messages here
 handle_overload_info({ensemble_ping, _From}, _Idx) ->
