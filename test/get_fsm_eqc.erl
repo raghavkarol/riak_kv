@@ -441,11 +441,15 @@ check_info([{vnode_errors, _Errors} | Rest], State) ->
 %% happen when all read repairs are complete.
 
 check_repair(Objects, RepairH, H, RRAbort) ->
-    Actual = [ Part || {Part, ?KV_PUT_REQ{}} <- RepairH ],
+    Actual = [ Part ||
+               {Part, Req} <- RepairH,
+                 riak_kv_requests:request_type(Req) == kv_put_request ],
     Heads  = merge_heads([ Lineage || {_, {ok, Lineage}} <- H ]),
     RepairObject  = (catch build_merged_object(Heads, Objects)),
     Expected =expected_repairs(H,RRAbort),
-    RepairObjects = [ Obj || {_Idx, ?KV_PUT_REQ{object=Obj}} <- RepairH ],
+    RepairObjects = [ riak_kv_requests:get_object(Req) ||
+                        {_Idx, Req} <- RepairH,
+                        riak_kv_requests:request_type(Req) == kv_put_request],
     conjunction(
         [{puts, equals(lists:sort(Expected), lists:sort(Actual))},
          {sanity, equals(length(RepairObjects), length(Actual))},
