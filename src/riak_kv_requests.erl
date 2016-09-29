@@ -22,7 +22,8 @@
 -module(riak_kv_requests).
 
 %% API
--export([request_type/1]).
+-export([request_type/1,
+         request_hash/1]).
 
 -export([new_put_request/5,
          is_coordinated_put/1,
@@ -60,6 +61,11 @@
 -spec request_type(request()) -> request_type().
 request_type(#riak_kv_put_req_v1{}) -> kv_put_request;
 request_type(_) -> unknown.
+
+request_hash(#riak_kv_put_req_v1{bkey=BKey}) ->
+    riak_core_util:chash_key(BKey);
+request_hash(_) ->
+    undefined.
 
 
 -spec new_put_request(bucket_key(),
