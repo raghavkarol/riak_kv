@@ -120,15 +120,6 @@ active(?VNODE_REQ{index=Idx,
     {next_state, active, State1};
 %% Handle a put request - send the responses prepared by call to
 %% 'set_vput_replies' up until the next 'w' response for a different partition.
-active(?VNODE_REQ{index=Idx,
-                  sender=Sender,
-                  request=?KV_PUT_REQ{req_id=ReqId,
-                                      object = PutObj,
-                                      options = Options}=Msg}, State) ->
-    %% Send up to the next w or timeout message, substituting indices
-    State1 = send_vput_replies(State#state.vput_replies, Idx,
-                               Sender, ReqId, PutObj, Options, State),
-    {next_state, active, State1#state{put_history=[{Idx,Msg}|State#state.put_history]}};    
 active(?VNODE_REQ{index=Idx, request=?KV_DELETE_REQ{}=Msg}, State) ->
     {next_state, active, State#state{put_history=[{Idx,Msg}|State#state.put_history]}}.
 
@@ -136,8 +127,24 @@ active(Req=?VNODE_REQ{request=?KV_DELETE_REQ{}},
             _From, State) ->
     {next_state, active, NewState} = active(Req, State),
     {reply, ok, NewState};
+active(Req = ?VNODE_REQ{index = Idx,
+                        sender = Sender,
+                        request = Req},
+       State) ->
+    active_handle_request(riak_kv_requests:request_type(Req), Req, Idx, Sender, State).
 active(_Request, _From, State) ->
     {stop, bad_request, State}.
+
+active_handle_request(kv_put_request, Req, Sender, State) ->
+    ReqId = riak_kv_requests:get_request_id(Req),
+    PutObj = riak_kv_requests:get_object(Req),
+    Options = riak_kv_requests:get_options(Req),
+    %% Send up to the next w or timeout message, substituting indices
+    State1 = send_vput_replies(State#state.vput_replies, Idx,
+                               Sender, ReqId, PutObj, Options, State),
+    {next_state, active, State1#state{put_history = [{Idx, Req}|State#state.put_history]}};
+active_handle_request(_, _Req, State) ->
+    {stop, band_request, State}.
 
 %% @private
 handle_event(_Event, _StateName, StateData) ->
